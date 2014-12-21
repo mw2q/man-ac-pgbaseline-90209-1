@@ -1,0 +1,105 @@
+BEGIN;
+BEGIN
+EXPLAIN (ANALYZE, BUFFERS)
+select
+	s_name,
+	count(*) as numwait
+from
+	supplier,
+	lineitem l1,
+	orders,
+	nation
+where
+	s_suppkey = l1.l_suppkey
+	and o_orderkey = l1.l_orderkey
+	and o_orderstatus = 'F'
+	and l1.l_receiptdate > l1.l_commitdate
+	and exists (
+		select
+			*
+		from
+			lineitem l2
+		where
+			l2.l_orderkey = l1.l_orderkey
+			and l2.l_suppkey <> l1.l_suppkey
+	)
+	and not exists (
+		select
+			*
+		from
+			lineitem l3
+		where
+			l3.l_orderkey = l1.l_orderkey
+			and l3.l_suppkey <> l1.l_suppkey
+			and l3.l_receiptdate > l3.l_commitdate
+	)
+	and s_nationkey = n_nationkey
+	and n_name = 'IRAQ'
+group by
+	s_name
+order by
+	numwait desc,
+	s_name
+LIMIT 100;
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=4856816.07..4856816.08 rows=1 width=26) (actual time=143598.119..143598.149 rows=100 loops=1)
+   Buffers: shared hit=10260450 read=1545173 dirtied=1 written=8046, temp read=161885 written=161879
+   ->  Sort  (cost=4856816.07..4856816.08 rows=1 width=26) (actual time=143598.115..143598.124 rows=100 loops=1)
+         Sort Key: (count(*)), supplier.s_name
+         Sort Method: top-N heapsort  Memory: 32kB
+         Buffers: shared hit=10260450 read=1545173 dirtied=1 written=8046, temp read=161885 written=161879
+         ->  HashAggregate  (cost=4856816.05..4856816.06 rows=1 width=26) (actual time=143590.190..143593.090 rows=4095 loops=1)
+               Buffers: shared hit=10260442 read=1545173 dirtied=1 written=8046, temp read=161885 written=161879
+               ->  Nested Loop Anti Join  (cost=2683619.14..4856816.05 rows=1 width=26) (actual time=48847.564..143427.378 rows=40964 loops=1)
+                     Buffers: shared hit=10260442 read=1545173 dirtied=1 written=8046, temp read=161885 written=161879
+                     ->  Nested Loop  (cost=2683619.14..4856800.88 rows=1 width=34) (actual time=48822.292..123833.595 rows=724674 loops=1)
+                           Join Filter: (l1.l_orderkey = orders.o_orderkey)
+                           Buffers: shared hit=7212568 read=954218 dirtied=1 written=1267, temp read=161885 written=161879
+                           ->  Hash Semi Join  (cost=2683619.14..4856798.89 rows=1 width=38) (actual time=48822.230..103864.425 rows=1500107 loops=1)
+                                 Hash Cond: (l1.l_orderkey = l2.l_orderkey)
+                                 Join Filter: (l2.l_suppkey <> l1.l_suppkey)
+                                 Rows Removed by Join Filter: 389190
+                                 Buffers: shared hit=1388031 read=770199 dirtied=1 written=5, temp read=161885 written=161879
+                                 ->  Hash Join  (cost=2441.58..1923416.13 rows=809399 width=34) (actual time=23.665..41115.516 rows=1555794 loops=1)
+                                       Hash Cond: (l1.l_suppkey = supplier.s_suppkey)
+                                       Buffers: shared hit=787811 read=292231 written=2
+                                       ->  Seq Scan on lineitem l1  (cost=0.00..1836999.43 rows=20234971 width=8) (actual time=0.043..27314.806 rows=37966174 loops=1)
+                                             Filter: (l_receiptdate > l_commitdate)
+                                             Rows Removed by Filter: 22078820
+                                             Buffers: shared hit=785971 read=292217 written=2
+                                       ->  Hash  (cost=2391.58..2391.58 rows=4000 width=30) (actual time=23.442..23.442 rows=4095 loops=1)
+                                             Buckets: 1024  Batches: 1  Memory Usage: 256kB
+                                             Buffers: shared hit=1837 read=14
+                                             ->  Nested Loop  (cost=79.26..2391.58 rows=4000 width=30) (actual time=1.775..21.524 rows=4095 loops=1)
+                                                   Buffers: shared hit=1837 read=14
+                                                   ->  Seq Scan on nation  (cost=0.00..1.31 rows=1 width=4) (actual time=0.010..0.018 rows=1 loops=1)
+                                                         Filter: (n_name = 'IRAQ'::bpchar)
+                                                         Rows Removed by Filter: 24
+                                                         Buffers: shared hit=1
+                                                   ->  Bitmap Heap Scan on supplier  (cost=79.26..2350.26 rows=4000 width=34) (actual time=1.758..20.087 rows=4095 loops=1)
+                                                         Recheck Cond: (s_nationkey = nation.n_nationkey)
+                                                         Buffers: shared hit=1836 read=14
+                                                         ->  Bitmap Index Scan on supplier_s_nationkey_s_suppkey_idx  (cost=0.00..78.26 rows=4000 width=0) (actual time=1.399..1.399 rows=4095 loops=1)
+                                                               Index Cond: (s_nationkey = nation.n_nationkey)
+                                                               Buffers: shared read=14
+                                 ->  Hash  (cost=1685237.14..1685237.14 rows=60704914 width=8) (actual time=48774.628..48774.628 rows=60044994 loops=1)
+                                       Buckets: 4194304  Batches: 4  Memory Usage: 586568kB
+                                       Buffers: shared hit=600220 read=477968 dirtied=1 written=3, temp written=153905
+                                       ->  Seq Scan on lineitem l2  (cost=0.00..1685237.14 rows=60704914 width=8) (actual time=0.018..25588.701 rows=60044994 loops=1)
+                                             Buffers: shared hit=600220 read=477968 dirtied=1 written=3
+                           ->  Index Scan using orders_o_orderkey_o_orderdate_idx on orders  (cost=0.00..1.98 rows=1 width=4) (actual time=0.012..0.012 rows=0 loops=1500107)
+                                 Index Cond: (o_orderkey = l2.l_orderkey)
+                                 Filter: (o_orderstatus = 'F'::bpchar)
+                                 Rows Removed by Filter: 1
+                                 Buffers: shared hit=5824537 read=184019 written=1262
+                     ->  Index Scan using pk_lineitem on lineitem l3  (cost=0.00..7.56 rows=5 width=8) (actual time=0.026..0.026 rows=1 loops=724674)
+                           Index Cond: (l_orderkey = l1.l_orderkey)
+                           Filter: ((l_receiptdate > l_commitdate) AND (l_suppkey <> l1.l_suppkey))
+                           Rows Removed by Filter: 1
+                           Buffers: shared hit=3047874 read=590955 written=6779
+ Total runtime: 143600.413 ms
+(56 rows)
+
+COMMIT;
+COMMIT
